@@ -79,6 +79,11 @@ npm run build
 GEN_API_KEY=your-key npm start
 ```
 
+## See also
+
+- **TypeScript SDK:** [github.com/poweredbyGEN/autocontentengine-typescript-sdk](https://github.com/poweredbyGEN/autocontentengine-typescript-sdk) — Type-safe client for Node.js and TypeScript projects
+- **API Docs:** [dev.gen.pro](https://dev.gen.pro) — Full API reference and guides
+
 ## License
 
 MIT
