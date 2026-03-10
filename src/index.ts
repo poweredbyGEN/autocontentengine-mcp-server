@@ -12,6 +12,142 @@ if (!API_KEY) {
   process.exit(1);
 }
 
+const API_REFERENCE = `# GEN Auto Content Engine API Reference
+
+Base URL: ${BASE_URL}
+Auth: X-API-Key header (Personal Access Token)
+
+## Getting a Personal Access Token (PAT)
+
+1. Log in to GEN at https://gen.pro
+2. Go to Settings → API Keys (or navigate to the API Keys section)
+3. Click "Create API Key", give it a name
+4. Copy the token immediately — it's only shown once
+5. Use it as: X-API-Key: ref_your_token_here
+
+Alternatively, create via API (requires existing auth):
+POST /v1/persisted_tokens with body { "name": "my-key" }
+
+## Concepts
+
+- **Workspace/Organization**: Top-level container for a company or brand
+- **Agent**: A brand identity with voice, personality, and strategy. All API calls are scoped to an agent via agent_id.
+- **Auto Content Engine (ACE)**: A spreadsheet-like workspace with columns, rows, and cells for batch content production
+- **Column**: Defines a content type (text, image, video, speech, etc.) via its creation card type
+- **Row**: One piece of content across all columns
+- **Cell**: Intersection of row + column. Contains the generated content.
+- **Layer**: Video composition layer within a cell (text overlay, sound, clip)
+- **Generation**: An async AI job that produces content in a cell or layer
+
+## Typical Workflow
+
+1. gen_list_agents → pick an agent_id
+2. gen_get_engine or gen_create_engine → get/create an engine
+3. gen_list_columns → see what content types exist
+4. gen_create_row → add a new content row
+5. gen_update_cell → set cell values (e.g. script text)
+6. gen_generate_content → trigger AI generation
+7. gen_get_generation → poll until status is "completed"
+
+## Generation Types (for gen_generate_content)
+
+### Text
+generation_type: "text_generation"
+data: { model: "gemini" | "openai", prompt: "Write a 30-second script about..." }
+
+### Image from Text
+generation_type: "gemini_image_generation"
+data: { prompt: "...", model: "gemini" | "gemini_pro", aspect_ratio: "1024:1024" | "576:1024" | "1024:576", number_of_images: 1 }
+
+generation_type: "midjourney"
+data: { prompt: "..." }
+
+### Video from Text
+generation_type: "gemini_video_generation"
+data: { prompt: "...", model: "veo3" | "veo3-fast" | "veo3-1" | "veo3-1-fast", aspect_ratio: "1024:576", duration: 8, negative_prompt: "..." }
+
+generation_type: "sora2_video_generation"
+data: { prompt: "...", aspect_ratio: "1024:576", duration: 10 }
+
+generation_type: "kling"
+data: { prompt: "...", model: "kling-v1-6", aspect_ratio: "576:1024", duration: 5 }
+
+generation_type: "seedance_video_generation"
+data: { prompt: "...", model: "seedance-1.0-pro" | "seedance-1.5-pro", aspect_ratio: "576:1024", duration: 5 }
+
+### Video from Image
+generation_type: "kling_image_video"
+data: { prompt: "...", model: "kling-v2-1" | "kling-v2-6", image_content_resource_id: 123, aspect_ratio: "576:1024", duration: 5 }
+
+### Speech from Text (ElevenLabs)
+generation_type: "eleven_labs"
+data: { voice_id: "...", script: "Text to speak", enhance_voice: true }
+
+### Lipsync
+generation_type: "lipsync"
+data: { model: "sync.so" | "gen", video_content_resource_id: 123, audio_content_resource_id: 456 }
+
+### Captions
+generation_type: "captions"
+data: { audio_content_resource_id: 123 }
+
+## Generation Status Flow
+pending → processing → completed | failed | stopped
+
+Poll GET /v1/generations/{id} until status is "completed".
+On completion: result (text) or output_resources (media URLs).
+Credits are pre-charged; refunded on failure/stop.
+
+## All Endpoints
+
+### Discovery
+- GET /v1/me → user profile
+- GET /v1/workspaces → [{id, name}]
+- GET /v1/agents?workspace_id={id} → [{id, name, role, organization}]
+
+### Agents (CRUD)
+- POST /v1/agents → create agent
+- GET /v1/agents/{id} → agent details
+- PATCH /v1/agents/{id} → update agent
+- DELETE /v1/agents/{id} → soft-delete agent
+- GET /v1/agents/{id}/avatars → list avatars
+- POST /v1/agents/{id}/avatars → upload avatar
+- DELETE /v1/agents/{id}/avatars/{avatar_id} → delete avatar
+
+### Organizations (CRUD)
+- GET /v1/organizations → list orgs with credits, role, plan
+- POST /v1/organizations → create org
+- GET /v1/organizations/{id} → org details
+- PATCH /v1/organizations/{id} → update org (owner/manager)
+- DELETE /v1/organizations/{id} → delete org (owner only, irreversible)
+
+### Auto Content Engine
+- POST /v1/autocontentengine?agent_id={id} → create engine
+- GET /v1/autocontentengine/{id}?agent_id={id} → get engine with all data
+- POST /v1/autocontentengine/{id}/clone?agent_id={id} → clone engine
+
+### Rows, Columns, Cells, Layers
+- Standard CRUD on /v1/autocontentengine/{id}/rows|columns|cells|layers
+- All require agent_id query parameter
+
+### Content Resources
+- GET /v1/content_resources?agent_id={id} → list files (images, videos, audio)
+- POST /v1/content_resources?agent_id={id} → upload file
+- GET /v1/content_resources/{id}?agent_id={id} → file details
+- DELETE /v1/content_resources/{id}?agent_id={id} → delete file
+- GET /v1/asset_libraries?agent_id={id} → browse asset library (files + folders)
+- POST /v1/direct_upload → get pre-signed S3 URL for large uploads
+
+### API Keys
+- POST /v1/persisted_tokens → create PAT (token shown once)
+- GET /v1/persisted_tokens → list PATs
+- DELETE /v1/persisted_tokens/{id}/revoke → revoke PAT
+
+## Error Format
+{ error: "message", error_code: "machine_code" }
+Common: 401 unauthorized, 404 not_found, 422 usable_gen_credit_required, 422 agent_not_found
+`;
+
 async function apiCall(method: string, path: string, body?: unknown): Promise<unknown> {
   const url = `${BASE_URL}${path}`;
   const res = await fetch(url, {
@@ -45,8 +181,24 @@ function jsonResult(data: unknown) {
 
 const server = new McpServer({
   name: "autocontentengine",
-  version: "0.1.0",
+  version: "0.2.0",
 });
+
+// ── API Reference resource ──────────────────────────────────────────────────
+// Claude can read this to understand the full API before making calls.
+
+server.resource(
+  "api-reference",
+  "gen://api-reference",
+  { description: "Full GEN Auto Content Engine API reference — read this first to understand all available endpoints, generation types, request/response schemas, and authentication." },
+  async () => ({
+    contents: [{
+      uri: "gen://api-reference",
+      mimeType: "text/plain",
+      text: API_REFERENCE,
+    }],
+  })
+);
 
 // ── Discovery tools ──────────────────────────────────────────────────────────
 
@@ -204,13 +356,27 @@ server.tool(
 
 server.tool(
   "gen_generate_content",
-  "Trigger content generation for a cell (e.g. script, image, video)",
+  `Trigger AI content generation for a cell. Returns a generation_id — poll with gen_get_generation until status is "completed".
+
+Generation types and their data params:
+- TEXT: generation_type="text_generation", data={model:"gemini"|"openai", prompt:"..."}
+- IMAGE: generation_type="gemini_image_generation", data={prompt:"...", model:"gemini"|"gemini_pro", aspect_ratio:"1024:1024"|"576:1024"|"1024:576", number_of_images:1}
+- IMAGE (Midjourney): generation_type="midjourney", data={prompt:"..."}
+- VIDEO (Veo): generation_type="gemini_video_generation", data={prompt:"...", model:"veo3"|"veo3-fast"|"veo3-1"|"veo3-1-fast", duration:8, negative_prompt:"..."}
+- VIDEO (Sora): generation_type="sora2_video_generation", data={prompt:"...", duration:10}
+- VIDEO (Kling): generation_type="kling", data={prompt:"...", model:"kling-v1-6", duration:5}
+- VIDEO (Seedance): generation_type="seedance_video_generation", data={prompt:"...", model:"seedance-1.0-pro"|"seedance-1.5-pro"}
+- SPEECH: generation_type="eleven_labs", data={voice_id:"...", script:"...", enhance_voice:true}
+- LIPSYNC: generation_type="lipsync", data={model:"sync.so"|"gen", video_content_resource_id:123, audio_content_resource_id:456}
+- CAPTIONS: generation_type="captions", data={audio_content_resource_id:123}
+
+Credits are pre-charged and refunded on failure/stop.`,
   {
     engine_id: z.string().describe("The engine ID"),
     cell_id: z.string().describe("The cell ID to generate content for"),
     agent_id: z.string().describe("The agent ID that owns the engine"),
-    generation_type: z.string().describe("Type of generation (e.g. 'script', 'image', 'video')"),
-    data: z.record(z.string(), z.unknown()).optional().describe("Additional generation parameters"),
+    generation_type: z.string().describe("text_generation | gemini_image_generation | midjourney | gemini_video_generation | sora2_video_generation | kling | seedance_video_generation | eleven_labs | lipsync | captions"),
+    data: z.record(z.string(), z.unknown()).optional().describe("Generation-specific parameters (prompt, model, aspect_ratio, duration, voice_id, etc.)"),
   },
   async ({ engine_id, cell_id, agent_id, generation_type, data: extraData }) => {
     const body: Record<string, unknown> = { agent_id, generation_type };
@@ -241,7 +407,7 @@ server.tool(
 
 server.tool(
   "gen_get_generation",
-  "Get the status and result of a generation job",
+  "Poll a generation job's status. Status flow: pending → processing → completed | failed | stopped. On completion: text results in 'result' field, media URLs in 'output_resources' array.",
   {
     generation_id: z.string().describe("The generation ID to check"),
   },
