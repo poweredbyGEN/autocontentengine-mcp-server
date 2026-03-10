@@ -302,6 +302,310 @@ server.tool(
   }
 );
 
+// ── Agent tools ─────────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_create_agent",
+  "Create a new agent, optionally within a specific organization/workspace",
+  {
+    name: z.string().describe("Agent name (must be unique within the workspace)"),
+    description: z.string().optional().describe("Short description of the agent's purpose"),
+    time_zone: z.string().optional().describe("IANA time zone identifier (e.g. America/New_York)"),
+    organization_id: z.string().optional().describe("Workspace ID to create the agent in"),
+    eleven_lab_api_key: z.string().optional().describe("ElevenLabs API key for voice synthesis"),
+    hume_ai_api_key: z.string().optional().describe("Hume AI API key for emotional voice"),
+  },
+  async ({ name, description, time_zone, organization_id, eleven_lab_api_key, hume_ai_api_key }) => {
+    const agent: Record<string, unknown> = { name };
+    if (description) agent.description = description;
+    if (time_zone) agent.time_zone = time_zone;
+    if (eleven_lab_api_key) agent.eleven_lab_api_key = eleven_lab_api_key;
+    if (hume_ai_api_key) agent.hume_ai_api_key = hume_ai_api_key;
+    const body: Record<string, unknown> = { agent };
+    if (organization_id) body.organization_id = organization_id;
+    const data = await apiCall("POST", "/agents", body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_get_agent",
+  "Get full details of a specific agent by ID",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    with_organization_uuid: z.string().optional().describe("If 'true', includes the workspace UUID in the response"),
+  },
+  async ({ agent_id, with_organization_uuid }) => {
+    const params = with_organization_uuid ? `?with_organization_uuid=${with_organization_uuid}` : "";
+    const data = await apiCall("GET", `/agents/${agent_id}${params}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_agent",
+  "Update an existing agent's name, description, time zone, or voice keys",
+  {
+    agent_id: z.string().describe("The agent ID to update"),
+    name: z.string().optional().describe("Updated agent name"),
+    description: z.string().optional().describe("Updated description"),
+    time_zone: z.string().optional().describe("IANA time zone identifier"),
+    eleven_lab_api_key: z.string().optional().describe("ElevenLabs API key"),
+    hume_ai_api_key: z.string().optional().describe("Hume AI API key"),
+  },
+  async ({ agent_id, name, description, time_zone, eleven_lab_api_key, hume_ai_api_key }) => {
+    const agent: Record<string, unknown> = {};
+    if (name) agent.name = name;
+    if (description) agent.description = description;
+    if (time_zone) agent.time_zone = time_zone;
+    if (eleven_lab_api_key) agent.eleven_lab_api_key = eleven_lab_api_key;
+    if (hume_ai_api_key) agent.hume_ai_api_key = hume_ai_api_key;
+    const data = await apiCall("PATCH", `/agents/${agent_id}`, { agent });
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_delete_agent",
+  "Soft-delete an agent (requires owner/manager role or being the creator)",
+  {
+    agent_id: z.string().describe("The agent ID to delete"),
+  },
+  async ({ agent_id }) => {
+    const data = await apiCall("DELETE", `/agents/${agent_id}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_list_agent_avatars",
+  "List avatar images for an agent, with the primary avatar first",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    cursor: z.string().optional().describe("Return avatars with ID greater than this value (for pagination)"),
+  },
+  async ({ agent_id, cursor }) => {
+    const params = cursor ? `?cursor=${cursor}` : "";
+    const data = await apiCall("GET", `/agents/${agent_id}/avatars${params}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_agent_avatar",
+  "Create an avatar for an agent using a DeGod avatar ID (for file uploads, use the API directly)",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    degod_avatar_id: z.string().optional().describe("DeGod avatar ID to use"),
+  },
+  async ({ agent_id, degod_avatar_id }) => {
+    const body: Record<string, unknown> = {
+      agent_avatars_attributes: [
+        degod_avatar_id ? { degod_avatar_id } : {},
+      ],
+    };
+    const data = await apiCall("POST", `/agents/${agent_id}/avatars`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_delete_agent_avatar",
+  "Delete one or more avatars from an agent (separate multiple IDs with underscores)",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    avatar_id: z.string().describe("The avatar ID to delete (use underscores for multiple, e.g. '7_8_9')"),
+  },
+  async ({ agent_id, avatar_id }) => {
+    const data = await apiCall("DELETE", `/agents/${agent_id}/avatars/${avatar_id}`);
+    return jsonResult(data);
+  }
+);
+
+// ── Organization tools ──────────────────────────────────────────────────────
+
+server.tool(
+  "gen_list_organizations",
+  "List all organizations/workspaces the authenticated user is a member of",
+  {},
+  async () => {
+    const data = await apiCall("GET", "/organizations");
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_organization",
+  "Create a new organization/workspace (you become the owner automatically)",
+  {
+    name: z.string().describe("Display name for the organization"),
+  },
+  async ({ name }) => {
+    const data = await apiCall("POST", "/organizations", { organization: { name } });
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_get_organization",
+  "Get details of a specific organization by ID",
+  {
+    organization_id: z.string().describe("The organization ID"),
+  },
+  async ({ organization_id }) => {
+    const data = await apiCall("GET", `/organizations/${organization_id}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_organization",
+  "Update an organization's name (requires owner or manager role)",
+  {
+    organization_id: z.string().describe("The organization ID to update"),
+    name: z.string().describe("New display name for the organization"),
+  },
+  async ({ organization_id, name }) => {
+    const data = await apiCall("PATCH", `/organizations/${organization_id}`, { organization: { name } });
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_delete_organization",
+  "Permanently delete an organization and all associated data (requires owner role, irreversible)",
+  {
+    organization_id: z.string().describe("The organization ID to delete"),
+  },
+  async ({ organization_id }) => {
+    const data = await apiCall("DELETE", `/organizations/${organization_id}`);
+    return jsonResult(data);
+  }
+);
+
+// ── Content Resource tools ──────────────────────────────────────────────────
+
+server.tool(
+  "gen_list_content_resources",
+  "List content resources (files) belonging to an agent, with optional filters",
+  {
+    agent_id: z.string().describe("The agent whose resources to list"),
+    type: z.string().optional().describe("Filter by file type: image, video, audio, zip, or safe_tensors"),
+    project_id: z.string().optional().describe("Filter to resources attached to a specific project"),
+    page: z.string().optional().describe("Page number for pagination (default 0, 20 items per page)"),
+  },
+  async ({ agent_id, type, project_id, page }) => {
+    const params = new URLSearchParams({ agent_id });
+    if (type) params.set("type", type);
+    if (project_id) params.set("project_id", project_id);
+    if (page) params.set("page", page);
+    const data = await apiCall("GET", `/content_resources?${params.toString()}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_content_resource",
+  "Create a content resource from a signed_id (use gen_create_direct_upload first to upload the file to S3)",
+  {
+    agent_id: z.string().describe("The agent to create the resource under"),
+    signed_id: z.string().describe("The signed_id returned from gen_create_direct_upload"),
+    project_id: z.string().optional().describe("Attach the resource to this project"),
+    asset_folder_id: z.string().optional().describe("Place the resource inside this asset folder"),
+  },
+  async ({ agent_id, signed_id, project_id, asset_folder_id }) => {
+    const body: Record<string, unknown> = { content_resource: { file: signed_id } };
+    if (project_id) body.project_node = { project_id };
+    if (asset_folder_id) body.asset_folder = { id: asset_folder_id };
+    const data = await apiCall("POST", `/content_resources?agent_id=${agent_id}`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_get_content_resource",
+  "Get full details of a content resource, including generator info if AI-generated",
+  {
+    agent_id: z.string().describe("The agent that owns the resource"),
+    resource_id: z.string().describe("The content resource ID"),
+  },
+  async ({ agent_id, resource_id }) => {
+    const data = await apiCall("GET", `/content_resources/${resource_id}?agent_id=${agent_id}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_content_resource",
+  "Rename a content resource file",
+  {
+    agent_id: z.string().describe("The agent that owns the resource"),
+    resource_id: z.string().describe("The content resource ID"),
+    filename: z.string().describe("The new filename for the resource"),
+  },
+  async ({ agent_id, resource_id, filename }) => {
+    const data = await apiCall("PATCH", `/content_resources/${resource_id}?agent_id=${agent_id}`, {
+      content_resource: { filename },
+    });
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_delete_content_resource",
+  "Permanently delete a content resource and its associated file",
+  {
+    agent_id: z.string().describe("The agent that owns the resource"),
+    resource_id: z.string().describe("The content resource ID to delete"),
+  },
+  async ({ agent_id, resource_id }) => {
+    const data = await apiCall("DELETE", `/content_resources/${resource_id}?agent_id=${agent_id}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_list_asset_libraries",
+  "List the agent's asset library (files and folders) with filtering and search",
+  {
+    agent_id: z.string().describe("The agent whose asset library to list"),
+    folder_id: z.string().optional().describe("Show contents of a specific folder (omit for root-level)"),
+    asset_type: z.string().optional().describe("Comma-separated filter: image, video, audio, folder"),
+    search: z.string().optional().describe("Search assets by name"),
+    order: z.string().optional().describe("Sort order: 'recent' for newest first"),
+    page: z.string().optional().describe("Page number (default 1)"),
+    page_size: z.string().optional().describe("Items per page (default 20)"),
+  },
+  async ({ agent_id, folder_id, asset_type, search, order, page, page_size }) => {
+    const params = new URLSearchParams({ agent_id });
+    if (folder_id) params.set("folder_id", folder_id);
+    if (asset_type) params.set("asset_type", asset_type);
+    if (search) params.set("search", search);
+    if (order) params.set("order", order);
+    if (page) params.set("page", page);
+    if (page_size) params.set("page_size", page_size);
+    const data = await apiCall("GET", `/asset_libraries?${params.toString()}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_direct_upload",
+  "Get a pre-signed S3 URL for direct file upload (use the returned signed_id with gen_create_content_resource)",
+  {
+    filename: z.string().describe("Original filename including extension"),
+    byte_size: z.number().describe("File size in bytes (max 1 GB)"),
+    checksum: z.string().describe("Base64-encoded MD5 checksum of the file"),
+    content_type: z.string().describe("MIME type (e.g. image/png, video/mp4)"),
+  },
+  async ({ filename, byte_size, checksum, content_type }) => {
+    const data = await apiCall("POST", "/direct_upload", {
+      blob: { filename, byte_size, checksum, content_type },
+    });
+    return jsonResult(data);
+  }
+);
+
 // ── Column tools ─────────────────────────────────────────────────────────────
 
 server.tool(
