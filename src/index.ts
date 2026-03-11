@@ -12,140 +12,295 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-const API_REFERENCE = `# GEN Auto Content Engine API Reference
+const API_REFERENCE = `# GEN Auto Content Engine — System Prompt & API Reference
 
-Base URL: ${BASE_URL}
-Auth: X-API-Key header (Personal Access Token)
+## About GEN
 
-## Getting a Personal Access Token (PAT)
+GEN is an Autonomous Social Media Agent platform. It detects trends, generates video content (text, images, video, speech, lipsync, captions), publishes across platforms, and improves automatically. The Auto Content Engine API gives programmatic access to GEN's content creation system.
 
+You are interacting with the GEN API through MCP tools. This reference teaches you how to use them effectively.
+
+## Mental Model
+
+Think of GEN as a hierarchy:
+
+1. **Workspace (Organization)** — A company or brand container. Holds billing, team members, and credits.
+2. **Agent** — A brand identity within a workspace. An agent has a name, personality, voice, and strategy. ALL content operations are scoped to an agent via agent_id.
+3. **Auto Content Engine (ACE)** — A spreadsheet-like workspace attached to an agent. Think of it as a production pipeline where each column is a content type and each row is one piece of content.
+4. **Content Loop** — The cycle: create engine → define columns → add rows → generate content in cells → render final video → publish.
+
+Within an engine:
+- **Columns** define content types (text script, hero image, video clip, voiceover, etc.)
+- **Rows** represent one piece of content across all columns
+- **Cells** are the intersection of a row and column — this is where content lives
+- **Layers** are composition elements within a video cell (text overlays, sound tracks, clips)
+- **Generations** are async AI jobs that produce content in a cell or layer
+
+## Authentication
+
+All API calls require a Personal Access Token (PAT) sent as an X-API-Key header.
+
+**How to get a PAT:**
 1. Log in to GEN at https://gen.pro
-2. Go to Settings → API Keys (or navigate to the API Keys section)
-3. Click "Create API Key", give it a name
-4. Copy the token immediately — it's only shown once
-5. Use it as: X-API-Key: ref_your_token_here
+2. Go to Settings → API Keys
+3. Click "Create API Key" and give it a name
+4. Copy the token immediately — it is only shown once
+5. Set it as GEN_API_KEY environment variable
 
-Alternatively, create via API (requires existing auth):
-POST /v1/persisted_tokens with body { "name": "my-key" }
+The token format is: ref_<random_string>
 
-## Concepts
+You can also manage PATs programmatically with gen_list_api_keys, gen_create_api_key, and gen_revoke_api_key.
 
-- **Workspace/Organization**: Top-level container for a company or brand
-- **Agent**: A brand identity with voice, personality, and strategy. All API calls are scoped to an agent via agent_id.
-- **Auto Content Engine (ACE)**: A spreadsheet-like workspace with columns, rows, and cells for batch content production
-- **Column**: Defines a content type (text, image, video, speech, etc.) via its creation card type
-- **Row**: One piece of content across all columns
-- **Cell**: Intersection of row + column. Contains the generated content.
-- **Layer**: Video composition layer within a cell (text overlay, sound, clip)
-- **Generation**: An async AI job that produces content in a cell or layer
+## Quick Start Workflow
 
-## Typical Workflow
+### Fastest path — clone a template:
+1. **gen_list_templates** → browse available templates
+2. **gen_list_agents** → pick an agent_id to work with
+3. **gen_clone_template** → clone the template into your agent. This creates a fully configured engine with all the right columns.
+4. **gen_list_rows** → see the rows created by the template
+5. **gen_update_cell** → fill in text cells with your content
+6. **gen_generate_content** → trigger AI generation for each cell
+7. **gen_get_generation** → poll until status is "completed"
 
-1. gen_list_agents → pick an agent_id
-2. gen_get_engine or gen_create_engine → get/create an engine
-3. gen_list_columns → see what content types exist
-4. gen_create_row → add a new content row
-5. gen_update_cell → set cell values (e.g. script text)
-6. gen_generate_content → trigger AI generation
-7. gen_get_generation → poll until status is "completed"
+### From scratch:
+1. **gen_list_agents** → pick an agent_id
+2. **gen_create_engine** → create a new empty engine
+3. **gen_create_column** → add columns (text, image, video, audio)
+4. **gen_create_row** → add content rows
+5. **gen_update_cell** → set cell values (e.g., write a script in a text cell)
+6. **gen_generate_content** → trigger AI generation in a cell
+7. **gen_get_generation** → poll until "completed"
+8. **gen_render_video** → render the final composed video
 
-## Generation Types (for gen_generate_content)
+## Templates
 
-### Text
-generation_type: "text_generation"
-data: { model: "gemini" | "openai", prompt: "Write a 30-second script about..." }
+**Always check templates first.** Cloning a template is the fastest way to create a production-ready engine.
 
-### Image from Text
-generation_type: "gemini_image_generation"
-data: { prompt: "...", model: "gemini" | "gemini_pro", aspect_ratio: "1024:1024" | "576:1024" | "1024:576", number_of_images: 1 }
+Templates are pre-configured engines created by GEN or the community. They come with:
+- The right columns for the workflow (text, image, video, audio, final_video)
+- Pre-configured generation settings and prompts
+- Example rows showing how to use the engine
 
-generation_type: "midjourney"
-data: { prompt: "..." }
+Use gen_list_templates to browse, gen_get_template to inspect one, and gen_clone_template to copy it into your agent's workspace.
 
-### Video from Text
-generation_type: "gemini_video_generation"
-data: { prompt: "...", model: "veo3" | "veo3-fast" | "veo3-1" | "veo3-1-fast", aspect_ratio: "1024:576", duration: 8, negative_prompt: "..." }
+## Creation Card Types (Generation Types)
 
-generation_type: "sora2_video_generation"
-data: { prompt: "...", aspect_ratio: "1024:576", duration: 10 }
+This is the most important section. When calling gen_generate_content, you must specify a generation_type and pass the right data params.
 
-generation_type: "kling"
-data: { prompt: "...", model: "kling-v1-6", aspect_ratio: "576:1024", duration: 5 }
+### Text Generation
+- **generation_type:** "text_generation"
+- **data:** { model: "gemini" | "openai", prompt: "Write a 30-second TikTok script about..." }
+- **Output:** Text string in the generation's result field
+- **Use for:** Scripts, captions, descriptions, hashtags, any text content
 
-generation_type: "seedance_video_generation"
-data: { prompt: "...", model: "seedance-1.0-pro" | "seedance-1.5-pro", aspect_ratio: "576:1024", duration: 5 }
+### Image from Text (Gemini)
+- **generation_type:** "gemini_image_generation"
+- **data:** { prompt: "A cinematic shot of...", model: "gemini" | "gemini_pro", aspect_ratio: "1024:1024" | "576:1024" | "1024:576", number_of_images: 1 }
+- **Output:** Image URL(s) in output_resources
+- **Aspect ratios:** "1024:1024" (square), "576:1024" (portrait/vertical), "1024:576" (landscape/horizontal)
 
-### Video from Image
-generation_type: "kling_image_video"
-data: { prompt: "...", model: "kling-v2-1" | "kling-v2-6", image_content_resource_id: 123, aspect_ratio: "576:1024", duration: 5 }
+### Image (Midjourney)
+- **generation_type:** "midjourney"
+- **data:** { prompt: "A hyper-realistic photo of..." }
+- **Output:** Image URL in output_resources
+- **Use for:** High-quality artistic images, photorealistic renders
+
+### Video from Text (Veo / Google)
+- **generation_type:** "gemini_video_generation"
+- **data:** { prompt: "A drone shot flying over...", model: "veo3" | "veo3-fast" | "veo3-1" | "veo3-1-fast", aspect_ratio: "1024:576" | "576:1024", duration: 8, negative_prompt: "blurry, low quality" }
+- **Models:** veo3 (highest quality), veo3-fast (faster), veo3-1 (v1), veo3-1-fast (v1 fast)
+- **Duration:** seconds (default 8)
+
+### Video from Text (Sora / OpenAI)
+- **generation_type:** "sora2_video_generation"
+- **data:** { prompt: "A timelapse of...", aspect_ratio: "1024:576" | "576:1024", duration: 10 }
+- **Duration:** seconds (default 10)
+
+### Video from Text (Kling)
+- **generation_type:** "kling"
+- **data:** { prompt: "A person walking...", model: "kling-v1-6", aspect_ratio: "576:1024" | "1024:576", duration: 5 }
+- **Duration:** seconds (default 5)
+
+### Video from Image (Kling)
+- **generation_type:** "kling_image_video"
+- **data:** { prompt: "The person starts dancing...", model: "kling-v2-1" | "kling-v2-6", image_content_resource_id: 123, aspect_ratio: "576:1024" | "1024:576", duration: 5 }
+- **Requires:** An existing image content resource (pass its ID as image_content_resource_id)
+- **Models:** kling-v2-1 (quality), kling-v2-6 (newer)
+
+### Video from Text (Seedance)
+- **generation_type:** "seedance_video_generation"
+- **data:** { prompt: "A dancer performing...", model: "seedance-1.0-pro" | "seedance-1.5-pro", aspect_ratio: "576:1024" | "1024:576", duration: 5 }
+- **Duration:** seconds (default 5)
 
 ### Speech from Text (ElevenLabs)
-generation_type: "eleven_labs"
-data: { voice_id: "...", script: "Text to speak", enhance_voice: true }
+- **generation_type:** "eleven_labs"
+- **data:** { voice_id: "voice_abc123", script: "Hello, welcome to my channel!", enhance_voice: true }
+- **Output:** Audio URL in output_resources
+- **Note:** Requires a valid ElevenLabs voice_id. The agent may need an ElevenLabs API key configured.
 
-### Lipsync
-generation_type: "lipsync"
-data: { model: "sync.so" | "gen", video_content_resource_id: 123, audio_content_resource_id: 456 }
+### Lipsync (Video + Audio → Talking Head)
+- **generation_type:** "lipsync"
+- **data:** { model: "sync.so" | "gen", video_content_resource_id: 123, audio_content_resource_id: 456 }
+- **Requires:** An existing video content resource and an audio content resource
+- **Models:** "sync.so" (third-party, high quality), "gen" (GEN's built-in)
 
-### Captions
-generation_type: "captions"
-data: { audio_content_resource_id: 123 }
+### Captions (Audio → Subtitles)
+- **generation_type:** "captions"
+- **data:** { audio_content_resource_id: 123 }
+- **Requires:** An existing audio content resource
+- **Output:** Timed caption data
+
+## Column Types
+
+Columns define what kind of content a cell holds:
+- **text** — Scripts, prompts, descriptions, hashtags
+- **image** — Generated or uploaded images
+- **video** — Generated or uploaded video clips
+- **audio** — Generated speech, uploaded music, sound effects
+
+### Column Roles
+- **ingredient** — User-creatable columns. These are the inputs to your content pipeline.
+- **video** — System video composition column (auto-created with templates)
+- **final_video** — The rendered output video (auto-created with templates)
+- **stats** — Analytics/metrics column (auto-created, read-only)
+
+Only **ingredient** role columns can be created by users via gen_create_column. The video, final_video, and stats columns are created automatically when you clone a template.
+
+## Common Workflows
+
+### Create a TikTok Video
+1. gen_clone_template (use a TikTok template) → creates engine with columns
+2. gen_create_row → add a row
+3. gen_update_cell → write your script in the text column cell
+4. gen_generate_content (text_generation) → generate/refine script with AI
+5. gen_generate_content (gemini_video_generation or kling) → generate video clip
+6. gen_generate_content (eleven_labs) → generate voiceover
+7. gen_generate_content (lipsync) → sync voice to video
+8. gen_render_video → render the final composed video
+
+### Generate Batch Images
+1. gen_create_engine → new engine
+2. gen_create_column (type: "text") → for prompts
+3. gen_create_column (type: "image") → for generated images
+4. gen_create_row (repeat for each image) → add rows
+5. gen_update_cell → write image prompts in text cells
+6. gen_generate_content (gemini_image_generation) → generate in each image cell
+
+### Add Voiceover to Existing Video
+1. gen_generate_content (eleven_labs) → generate speech in an audio cell
+2. gen_generate_content (lipsync) → combine video + audio content resources
 
 ## Generation Status Flow
+
+All generations are asynchronous. After triggering gen_generate_content:
+
 pending → processing → completed | failed | stopped
 
-Poll GET /v1/generations/{id} until status is "completed".
-On completion: result (text) or output_resources (media URLs).
-Credits are pre-charged; refunded on failure/stop.
+**Poll with gen_get_generation** until status is "completed".
+
+On completion:
+- **Text:** result field contains the generated text
+- **Media (image/video/audio):** output_resources array contains URLs
+
+**Credits:** Pre-charged when generation starts. Automatically refunded if the generation fails or is stopped.
+
+**Stopping:** Use gen_stop_generation to cancel a running generation.
 
 ## All Endpoints
 
 ### Discovery
-- GET /v1/me → user profile
-- GET /v1/workspaces → [{id, name}]
-- GET /v1/agents?workspace_id={id} → [{id, name, role, organization}]
+- GET /me → user profile, workspace memberships
+- GET /workspaces → list workspaces [{id, name}]
+- GET /agents?workspace_id={id} → list agents [{id, name, role, organization}]
 
-### Agents (CRUD)
-- POST /v1/agents → create agent
-- GET /v1/agents/{id} → agent details
-- PATCH /v1/agents/{id} → update agent
-- DELETE /v1/agents/{id} → soft-delete agent
-- GET /v1/agents/{id}/avatars → list avatars
-- POST /v1/agents/{id}/avatars → upload avatar
-- DELETE /v1/agents/{id}/avatars/{avatar_id} → delete avatar
+### Agents
+- POST /agents → create agent (body: {agent: {name, description, time_zone}})
+- GET /agents/{id} → agent details
+- PATCH /agents/{id} → update agent
+- DELETE /agents/{id} → soft-delete agent
+- GET /agents/{id}/avatars → list avatars
+- POST /agents/{id}/avatars → upload avatar
+- DELETE /agents/{id}/avatars/{avatar_id} → delete avatar
 
-### Organizations (CRUD)
-- GET /v1/organizations → list orgs with credits, role, plan
-- POST /v1/organizations → create org
-- GET /v1/organizations/{id} → org details
-- PATCH /v1/organizations/{id} → update org (owner/manager)
-- DELETE /v1/organizations/{id} → delete org (owner only, irreversible)
+### Organizations
+- GET /organizations → list orgs with credits, role, plan
+- POST /organizations → create org (body: {organization: {name}})
+- GET /organizations/{id} → org details
+- PATCH /organizations/{id} → update org (owner/manager)
+- DELETE /organizations/{id} → delete org (owner only, irreversible)
+
+### Templates
+- GET /templates/projects → list templates (paginated, 20 per page)
+- GET /templates/projects/{slug} → get template details by slug/UUID/ID
+- POST /templates/spreadsheets/{slug}/clone → clone template into agent (body: {agent_id})
 
 ### Auto Content Engine
-- POST /v1/autocontentengine?agent_id={id} → create engine
-- GET /v1/autocontentengine/{id}?agent_id={id} → get engine with all data
-- POST /v1/autocontentengine/{id}/clone?agent_id={id} → clone engine
+- POST /autocontentengine?agent_id={id} → create engine (body: {agent_id, title})
+- GET /autocontentengine/{id}?agent_id={id} → get engine with all columns, rows, cells
+- POST /autocontentengine/{id}/clone?agent_id={id} → clone engine
 
-### Rows, Columns, Cells, Layers
-- Standard CRUD on /v1/autocontentengine/{id}/rows|columns|cells|layers
-- All require agent_id query parameter
+### Columns
+- GET /autocontentengine/{id}/columns?agent_id={id} → list columns
+- POST /autocontentengine/{id}/columns → create column (body: {agent_id, title, type, position?})
+
+### Rows
+- GET /autocontentengine/{id}/rows?agent_id={id} → list rows
+- POST /autocontentengine/{id}/rows → create row (body: {agent_id})
+- POST /autocontentengine/{id}/rows/{row_id}/duplicate → duplicate row
+
+### Cells
+- GET /autocontentengine/{id}/cells/{cell_id}?agent_id={id} → get cell
+- PATCH /autocontentengine/{id}/cells/{cell_id} → update cell value (body: {agent_id, value})
+- POST /autocontentengine/{id}/cells/{cell_id}/generate → trigger generation
+- POST /autocontentengine/{id}/cells/{cell_id}/render → render final video
+
+### Layers
+- POST /autocontentengine/{id}/cells/{cell_id}/layers → create layer
+- POST /autocontentengine/{id}/cells/{cell_id}/layers/{layer_id}/generate → generate layer
+- DELETE /autocontentengine/{id}/cells/{cell_id}/layers/{layer_id} → delete layer
+
+### Generations
+- GET /generations/{id} → poll generation status
+- POST /generations/{id}/stop → stop a running generation
+
+### Global Variables
+- GET /autocontentengine/{id}/global_variables?agent_id={id} → list engine variables
 
 ### Content Resources
-- GET /v1/content_resources?agent_id={id} → list files (images, videos, audio)
-- POST /v1/content_resources?agent_id={id} → upload file
-- GET /v1/content_resources/{id}?agent_id={id} → file details
-- DELETE /v1/content_resources/{id}?agent_id={id} → delete file
-- GET /v1/asset_libraries?agent_id={id} → browse asset library (files + folders)
-- POST /v1/direct_upload → get pre-signed S3 URL for large uploads
+- GET /content_resources?agent_id={id} → list files (filterable by type, project_id)
+- POST /content_resources?agent_id={id} → create resource from signed_id
+- GET /content_resources/{id}?agent_id={id} → file details
+- PATCH /content_resources/{id}?agent_id={id} → rename file
+- DELETE /content_resources/{id}?agent_id={id} → delete file
+- GET /asset_libraries?agent_id={id} → browse asset library (files + folders)
+- POST /direct_upload → get pre-signed S3 URL for large uploads
 
-### API Keys
-- POST /v1/persisted_tokens → create PAT (token shown once)
-- GET /v1/persisted_tokens → list PATs
-- DELETE /v1/persisted_tokens/{id}/revoke → revoke PAT
+### API Keys (Personal Access Tokens)
+- GET /persisted_tokens → list all PATs
+- POST /persisted_tokens → create PAT (body: {name?}, token shown once)
+- DELETE /persisted_tokens/{id}/revoke → revoke PAT
 
 ## Error Format
-{ error: "message", error_code: "machine_code" }
-Common: 401 unauthorized, 404 not_found, 422 usable_gen_credit_required, 422 agent_not_found
+
+All errors return: { error: "Human-readable message", error_code: "machine_code" }
+
+Common error codes:
+- 401 unauthorized — invalid or missing API key
+- 404 not_found — resource does not exist or you lack access
+- 422 usable_gen_credit_required — insufficient credits for this generation
+- 422 agent_not_found — the agent_id is invalid or you lack access
+- 422 validation_error — request body failed validation
+- 429 rate_limited — too many requests, slow down
+
+## Tips for AI Agents
+
+1. **Always start with gen_list_agents** to get valid agent IDs before any operation.
+2. **Check templates before building from scratch** — gen_list_templates saves significant time.
+3. **Poll generations patiently** — video generation can take 30-120 seconds. Poll every 5-10 seconds.
+4. **Use gen_get_engine to see everything** — it returns all columns, rows, and cells in one call.
+5. **Text cells are inputs** — write prompts/scripts there first, then generate media from them.
+6. **Content resource IDs link media** — when lipsync or image-to-video needs existing media, get the content_resource_id from a completed generation's output_resources.
+7. **Render is the final step** — gen_render_video combines all layers into the publishable video.
 `;
 
 async function apiCall(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -181,7 +336,7 @@ function jsonResult(data: unknown) {
 
 const server = new McpServer({
   name: "autocontentengine",
-  version: "0.2.0",
+  version: "0.3.0",
 });
 
 // ── API Reference resource ──────────────────────────────────────────────────
@@ -235,11 +390,51 @@ server.tool(
   }
 );
 
+// ── Template tools ──────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_list_templates",
+  "List available templates. Templates are pre-configured engines — cloning one is the fastest way to start. Always check templates before creating an engine from scratch.",
+  {
+    page: z.string().optional().describe("Page number (default 1, 20 per page)"),
+  },
+  async ({ page }) => {
+    const params = page ? `?page=${page}` : "";
+    const data = await apiCall("GET", `/templates/projects${params}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_get_template",
+  "Get details of a specific template by slug, UUID, or ID",
+  {
+    slug: z.string().describe("Template slug, UUID, or numeric ID"),
+  },
+  async ({ slug }) => {
+    const data = await apiCall("GET", `/templates/projects/${slug}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_clone_template",
+  "Clone a template into an agent's workspace. This is the FASTEST way to create a production-ready engine with pre-configured columns. Returns the new engine.",
+  {
+    slug: z.string().describe("Template slug to clone"),
+    agent_id: z.string().describe("Agent ID to clone the template into"),
+  },
+  async ({ slug, agent_id }) => {
+    const data = await apiCall("POST", `/templates/spreadsheets/${slug}/clone`, { agent_id });
+    return jsonResult(data);
+  }
+);
+
 // ── Engine tools ─────────────────────────────────────────────────────────────
 
 server.tool(
   "gen_create_engine",
-  "Create a new Auto Content Engine for an agent",
+  "Create a new empty Auto Content Engine for an agent. TIP: Consider using gen_clone_template instead — templates come pre-configured with the right columns for common workflows.",
   {
     agent_id: z.string().describe("The agent ID to create the engine for"),
     title: z.string().describe("Title for the new engine"),
@@ -365,6 +560,7 @@ Generation types and their data params:
 - VIDEO (Veo): generation_type="gemini_video_generation", data={prompt:"...", model:"veo3"|"veo3-fast"|"veo3-1"|"veo3-1-fast", duration:8, negative_prompt:"..."}
 - VIDEO (Sora): generation_type="sora2_video_generation", data={prompt:"...", duration:10}
 - VIDEO (Kling): generation_type="kling", data={prompt:"...", model:"kling-v1-6", duration:5}
+- VIDEO (Kling from image): generation_type="kling_image_video", data={prompt:"...", model:"kling-v2-1"|"kling-v2-6", image_content_resource_id:123, duration:5}
 - VIDEO (Seedance): generation_type="seedance_video_generation", data={prompt:"...", model:"seedance-1.0-pro"|"seedance-1.5-pro"}
 - SPEECH: generation_type="eleven_labs", data={voice_id:"...", script:"...", enhance_voice:true}
 - LIPSYNC: generation_type="lipsync", data={model:"sync.so"|"gen", video_content_resource_id:123, audio_content_resource_id:456}
@@ -375,7 +571,7 @@ Credits are pre-charged and refunded on failure/stop.`,
     engine_id: z.string().describe("The engine ID"),
     cell_id: z.string().describe("The cell ID to generate content for"),
     agent_id: z.string().describe("The agent ID that owns the engine"),
-    generation_type: z.string().describe("text_generation | gemini_image_generation | midjourney | gemini_video_generation | sora2_video_generation | kling | seedance_video_generation | eleven_labs | lipsync | captions"),
+    generation_type: z.string().describe("text_generation | gemini_image_generation | midjourney | gemini_video_generation | sora2_video_generation | kling | kling_image_video | seedance_video_generation | eleven_labs | lipsync | captions"),
     data: z.record(z.string(), z.unknown()).optional().describe("Generation-specific parameters (prompt, model, aspect_ratio, duration, voice_id, etc.)"),
   },
   async ({ engine_id, cell_id, agent_id, generation_type, data: extraData }) => {
@@ -425,6 +621,22 @@ server.tool(
   },
   async ({ generation_id }) => {
     const data = await apiCall("POST", `/generations/${generation_id}/stop`);
+    return jsonResult(data);
+  }
+);
+
+// ── Render tools ─────────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_render_video",
+  "Render the final composed video for a cell. This combines all layers (video, audio, text overlays, captions) into the final output.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    cell_id: z.string().describe("The cell ID (must be a final_video column cell)"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+  },
+  async ({ engine_id, cell_id, agent_id }) => {
+    const data = await apiCall("POST", `/autocontentengine/${engine_id}/cells/${cell_id}/render`, { agent_id });
     return jsonResult(data);
   }
 );
@@ -649,6 +861,21 @@ server.tool(
   }
 );
 
+// ── Global Variables tools ──────────────────────────────────────────────────
+
+server.tool(
+  "gen_list_variables",
+  "Get global variables for an engine. Variables are key-value pairs used for template substitution in prompts and content.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+  },
+  async ({ engine_id, agent_id }) => {
+    const data = await apiCall("GET", `/autocontentengine/${engine_id}/global_variables?agent_id=${agent_id}`);
+    return jsonResult(data);
+  }
+);
+
 // ── Content Resource tools ──────────────────────────────────────────────────
 
 server.tool(
@@ -789,18 +1016,56 @@ server.tool(
 
 server.tool(
   "gen_create_column",
-  "Create a new column in an Auto Content Engine",
+  "Create a new column in an Auto Content Engine. Valid types: 'text' (scripts/prompts), 'image', 'video', 'audio'. Only 'ingredient' role columns can be created by users — system columns (video, final_video, stats) are created automatically with templates.",
   {
     engine_id: z.string().describe("The engine ID"),
     agent_id: z.string().describe("The agent ID that owns the engine"),
     title: z.string().describe("Column title"),
-    type: z.string().describe("Column type"),
+    type: z.string().describe("Column type: text | image | video | audio"),
     position: z.number().optional().describe("Column position (0-indexed)"),
   },
   async ({ engine_id, agent_id, title, type, position }) => {
     const body: Record<string, unknown> = { agent_id, title, type };
     if (position !== undefined) body.position = position;
     const data = await apiCall("POST", `/autocontentengine/${engine_id}/columns`, body);
+    return jsonResult(data);
+  }
+);
+
+// ── API Key tools ───────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_list_api_keys",
+  "List all Personal Access Tokens (API keys) for the authenticated user",
+  {},
+  async () => {
+    const data = await apiCall("GET", "/persisted_tokens");
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_api_key",
+  "Create a new Personal Access Token. The plain-text token is returned ONCE — store it securely.",
+  {
+    name: z.string().optional().describe("Descriptive name for the API key"),
+  },
+  async ({ name }) => {
+    const body: Record<string, unknown> = {};
+    if (name) body.name = name;
+    const data = await apiCall("POST", "/persisted_tokens", body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_revoke_api_key",
+  "Revoke (delete) a Personal Access Token",
+  {
+    token_id: z.string().describe("The token ID to revoke"),
+  },
+  async ({ token_id }) => {
+    const data = await apiCall("DELETE", `/persisted_tokens/${token_id}/revoke`);
     return jsonResult(data);
   }
 );
