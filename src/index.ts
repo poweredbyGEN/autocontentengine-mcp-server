@@ -190,6 +190,16 @@ Only **ingredient** role columns can be created by users via gen_create_column. 
 1. gen_generate_content (eleven_labs) → generate speech in an audio cell
 2. gen_generate_content (lipsync) → combine video + audio content resources
 
+### Monitor Social Media Content
+1. **gen_create_monitoring_job** → set platform, search_type, value, monitoring=true
+2. Poll job status via GET /v1/user_jobs/{id}?agent_id={id}
+3. Query scraped data by chatting with the agent (the data is in the agent's knowledge base)
+
+### Publish Content
+1. Generate or upload your video/image → get a public media_url
+2. **gen_publish_content** → post immediately (schedule_type="now") or schedule for later
+3. Poll status until completed — result contains the post_id from the platform
+
 ## Generation Status Flow
 
 All generations are asynchronous. After triggering gen_generate_content:
@@ -1066,6 +1076,133 @@ server.tool(
   },
   async ({ token_id }) => {
     const data = await apiCall("DELETE", `/persisted_tokens/${token_id}/revoke`);
+    return jsonResult(data);
+  }
+);
+
+// ── Content Monitoring tools ─────────────────────────────────────────────────
+
+server.tool(
+  "gen_create_monitoring_job",
+  "Start monitoring or scraping social media content. Supports 6 platforms: tiktok, instagram, youtube, reddit, pinterest, twitter. Search types: username (@creator), hashtag (#topic), keyword (plain text). Not all platform/type combos are valid — TikTok supports all three, Instagram supports username+hashtag, Twitter only supports username. Set monitoring=true for ongoing scheduled scraping, false for one-time. Scraped data is queried through the agent chat, not returned directly. This is a paid operation ($0.015/post, $0.002/comment).",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    platform: z.enum(["tiktok", "instagram", "youtube", "reddit", "pinterest", "twitter"]).describe("Target platform"),
+    search_type: z.enum(["username", "hashtag", "keyword"]).describe("Search type — must be supported by the chosen platform"),
+    value: z.string().describe("Search value: @username, #hashtag, or keyword text"),
+    days: z.number().optional().describe("Filter to content from last N days: 0 (no filter), 1, 7, 30, 90, or 180"),
+    country: z.string().optional().describe("Two-letter country code (e.g. us, gb) to filter by region"),
+    max_results: z.number().optional().describe("Max results per scrape (1-1000)"),
+    monitoring: z.boolean().optional().describe("true for ongoing monitoring (default), false for one-time scrape"),
+    comment_monitoring: z.boolean().optional().describe("true to also scrape comments (adds per-comment cost)"),
+  },
+  async ({ agent_id, platform, search_type, value, days, country, max_results, monitoring, comment_monitoring }) => {
+    const jobData: Record<string, unknown> = {
+      platform,
+      type: search_type,
+      value,
+    };
+    if (days !== undefined) jobData.days = days;
+    if (country) jobData.country = country;
+    if (max_results !== undefined) jobData.max_results = max_results;
+    if (monitoring !== undefined) jobData.monitoring = monitoring;
+    if (comment_monitoring !== undefined) jobData.comment_monitoring = comment_monitoring;
+
+    const formData = new URLSearchParams();
+    formData.set("agent_id", agent_id);
+    formData.set("user_job[data]", JSON.stringify(jobData));
+
+    const response = await fetch(`${BASE_URL}/train_socials?agent_id=${agent_id}`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": API_KEY!,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formData.toString(),
+    });
+    const data = await response.json();
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_monitoring_job",
+  "Update an existing content monitoring job. Only jobs with pending or processing status can be updated.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    job_id: z.string().describe("The monitoring job ID to update"),
+    platform: z.enum(["tiktok", "instagram", "youtube", "reddit", "pinterest", "twitter"]).describe("Target platform"),
+    search_type: z.enum(["username", "hashtag", "keyword"]).describe("Search type"),
+    value: z.string().describe("Search value: @username, #hashtag, or keyword text"),
+    days: z.number().optional().describe("Filter to content from last N days"),
+    country: z.string().optional().describe("Two-letter country code"),
+    max_results: z.number().optional().describe("Max results per scrape (1-1000)"),
+    monitoring: z.boolean().optional().describe("true for ongoing, false for one-time"),
+    comment_monitoring: z.boolean().optional().describe("true to also scrape comments"),
+  },
+  async ({ agent_id, job_id, platform, search_type, value, days, country, max_results, monitoring, comment_monitoring }) => {
+    const jobData: Record<string, unknown> = {
+      platform,
+      type: search_type,
+      value,
+    };
+    if (days !== undefined) jobData.days = days;
+    if (country) jobData.country = country;
+    if (max_results !== undefined) jobData.max_results = max_results;
+    if (monitoring !== undefined) jobData.monitoring = monitoring;
+    if (comment_monitoring !== undefined) jobData.comment_monitoring = comment_monitoring;
+
+    const formData = new URLSearchParams();
+    formData.set("agent_id", agent_id);
+    formData.set("user_job[data]", JSON.stringify(jobData));
+
+    const response = await fetch(`${BASE_URL}/train_socials/${job_id}?agent_id=${agent_id}`, {
+      method: "PUT",
+      headers: {
+        "X-API-Key": API_KEY!,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formData.toString(),
+    });
+    const data = await response.json();
+    return jsonResult(data);
+  }
+);
+
+// ── Publishing tools ─────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_publish_content",
+  "Publish or schedule content to a social media platform. Currently supports TikTok. The agent must have a connected TikTok social account. For immediate posting use schedule_type='now'. For scheduled posting use schedule_type='scheduled' with a future scheduled_time. This is a paid operation.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    platform: z.enum(["tiktok"]).describe("Target platform (currently only tiktok)"),
+    media_url: z.string().describe("Public URL to the media file (must be accessible at post time)"),
+    description: z.string().describe("Post caption/description. Max ~2200 chars for TikTok. Include hashtags inline."),
+    schedule_type: z.enum(["now", "scheduled"]).describe("'now' for immediate posting, 'scheduled' for future posting"),
+    title: z.string().optional().describe("Post title"),
+    media_type: z.enum(["VIDEO", "IMAGE"]).optional().describe("Media type (default VIDEO)"),
+    scheduled_time: z.string().optional().describe("ISO 8601 UTC datetime (e.g. 2026-03-16T15:00:00Z). Required when schedule_type is 'scheduled'."),
+    thumbnail_url: z.string().optional().describe("Custom thumbnail URL"),
+    timezone_offset: z.number().optional().describe("Timezone offset in minutes from UTC (default 0)"),
+  },
+  async ({ agent_id, platform, media_url, description, schedule_type, title, media_type, scheduled_time, thumbnail_url, timezone_offset }) => {
+    const publishData: Record<string, unknown> = {
+      platform,
+      media_url,
+      description,
+      schedule_type,
+    };
+    if (title) publishData.title = title;
+    if (media_type) publishData.media_type = media_type;
+    if (scheduled_time) publishData.scheduled_time = scheduled_time;
+    if (thumbnail_url) publishData.thumbnail_url = thumbnail_url;
+    if (timezone_offset !== undefined) publishData.timezone_offset = timezone_offset;
+
+    const data = await apiCall("POST", `/user_jobs?agent_id=${agent_id}`, {
+      user_job_type: "publish_content",
+      data: JSON.stringify(publishData),
+    });
     return jsonResult(data);
   }
 );
