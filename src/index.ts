@@ -1084,16 +1084,16 @@ server.tool(
 
 server.tool(
   "gen_create_monitoring_job",
-  "Start monitoring or scraping social media content. Supports 6 platforms: tiktok, instagram, youtube, reddit, pinterest, twitter. Search types: username (@creator), hashtag (#topic), keyword (plain text). Not all platform/type combos are valid — TikTok supports all three, Instagram supports username+hashtag, Twitter only supports username. Set monitoring=true for ongoing scheduled scraping, false for one-time. Scraped data is queried through the agent chat, not returned directly. This is a paid operation ($0.015/post, $0.002/comment).",
+  "Start monitoring or scraping social media content. Supports 3 platforms: tiktok, instagram, youtube. Search types: username (@creator), hashtag (#topic), keyword (plain text). Not all platform/type combos are valid — TikTok and YouTube support all three, Instagram supports username+hashtag only. Set monitoring=true for ongoing scheduled scraping, false for one-time (default). Scraped data is queried through the agent chat, not returned directly. This is a paid operation ($0.015/post, $0.002/comment).",
   {
     agent_id: z.string().describe("The agent ID"),
-    platform: z.enum(["tiktok", "instagram", "youtube", "reddit", "pinterest", "twitter"]).describe("Target platform"),
+    platform: z.enum(["tiktok", "instagram", "youtube"]).describe("Target platform"),
     search_type: z.enum(["username", "hashtag", "keyword"]).describe("Search type — must be supported by the chosen platform"),
     value: z.string().describe("Search value: @username, #hashtag, or keyword text"),
     days: z.number().optional().describe("Filter to content from last N days: 0 (no filter), 1, 7, 30, 90, or 180"),
     country: z.string().optional().describe("Two-letter country code (e.g. us, gb) to filter by region"),
-    max_results: z.number().optional().describe("Max results per scrape (1-1000)"),
-    monitoring: z.boolean().optional().describe("true for ongoing monitoring (default), false for one-time scrape"),
+    max_results: z.number().optional().describe("Max results per scrape (1-50)"),
+    monitoring: z.boolean().optional().describe("true for ongoing monitoring, false for one-time scrape (default)"),
     comment_monitoring: z.boolean().optional().describe("true to also scrape comments (adds per-comment cost)"),
   },
   async ({ agent_id, platform, search_type, value, days, country, max_results, monitoring, comment_monitoring }) => {
@@ -1110,9 +1110,10 @@ server.tool(
 
     const formData = new URLSearchParams();
     formData.set("agent_id", agent_id);
+    formData.set("user_job[user_job_type]", "train_social");
     formData.set("user_job[data]", JSON.stringify(jobData));
 
-    const response = await fetch(`${BASE_URL}/train_socials?agent_id=${agent_id}`, {
+    const response = await fetch(`${BASE_URL}/user_jobs?agent_id=${agent_id}`, {
       method: "POST",
       headers: {
         "X-API-Key": API_KEY!,
@@ -1131,32 +1132,28 @@ server.tool(
   {
     agent_id: z.string().describe("The agent ID"),
     job_id: z.string().describe("The monitoring job ID to update"),
-    platform: z.enum(["tiktok", "instagram", "youtube", "reddit", "pinterest", "twitter"]).describe("Target platform"),
+    platform: z.enum(["tiktok", "instagram", "youtube"]).describe("Target platform"),
     search_type: z.enum(["username", "hashtag", "keyword"]).describe("Search type"),
     value: z.string().describe("Search value: @username, #hashtag, or keyword text"),
     days: z.number().optional().describe("Filter to content from last N days"),
     country: z.string().optional().describe("Two-letter country code"),
-    max_results: z.number().optional().describe("Max results per scrape (1-1000)"),
+    max_results: z.number().optional().describe("Max results per scrape (1-50)"),
     monitoring: z.boolean().optional().describe("true for ongoing, false for one-time"),
     comment_monitoring: z.boolean().optional().describe("true to also scrape comments"),
   },
   async ({ agent_id, job_id, platform, search_type, value, days, country, max_results, monitoring, comment_monitoring }) => {
-    const jobData: Record<string, unknown> = {
-      platform,
-      type: search_type,
-      value,
-    };
-    if (days !== undefined) jobData.days = days;
-    if (country) jobData.country = country;
-    if (max_results !== undefined) jobData.max_results = max_results;
-    if (monitoring !== undefined) jobData.monitoring = monitoring;
-    if (comment_monitoring !== undefined) jobData.comment_monitoring = comment_monitoring;
-
     const formData = new URLSearchParams();
     formData.set("agent_id", agent_id);
-    formData.set("user_job[data]", JSON.stringify(jobData));
+    formData.set("platform", platform);
+    formData.set("type", search_type);
+    formData.set("value", value);
+    if (days !== undefined) formData.set("days", String(days));
+    if (country) formData.set("country", country);
+    if (max_results !== undefined) formData.set("max_results", String(max_results));
+    if (monitoring !== undefined) formData.set("monitoring", String(monitoring));
+    if (comment_monitoring !== undefined) formData.set("comment_monitoring", String(comment_monitoring));
 
-    const response = await fetch(`${BASE_URL}/train_socials/${job_id}?agent_id=${agent_id}`, {
+    const response = await fetch(`${BASE_URL}/user_jobs/${job_id}?agent_id=${agent_id}`, {
       method: "PUT",
       headers: {
         "X-API-Key": API_KEY!,
