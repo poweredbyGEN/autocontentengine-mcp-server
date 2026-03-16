@@ -276,10 +276,10 @@ On completion:
 - POST /direct_upload → get pre-signed S3 URL for large uploads
 
 ### Agent Profile
-- GET /agents/{id}/profile → get full agent profile (identity, voice, brand sections)
-- POST /agents/{id}/profile → create initial agent profile (body: {identity?, voice?, brand?})
-- PUT /agents/{id}/profile → update agent profile (body: {identity?, voice?, brand?})
-- DELETE /agents/{id}/profile → reset brand/TrendPulse config (keeps agent and voice settings)
+- GET /agent/profile → get full agent profile (identity, voice, brand sections)
+- POST /agent/profile → create initial agent profile (body: {identity?, voice?, brand?})
+- PUT /agent/profile → update agent profile (body: {identity?, voice?, brand?})
+- DELETE /agent/profile → reset brand/TrendPulse config (keeps agent and voice settings)
 
 Profile sections:
 - **identity:** name, description, persona
@@ -1090,7 +1090,7 @@ server.tool(
     agent_id: z.string().describe("The agent ID"),
   },
   async ({ agent_id }) => {
-    const data = await apiCall("GET", `/agents/${agent_id}/profile`);
+    const data = await apiCall("GET", `/agent/profile`);
     return jsonResult(data);
   }
 );
@@ -1134,7 +1134,7 @@ server.tool(
     if (identity) body.identity = identity;
     if (voice) body.voice = voice;
     if (brand) body.brand = brand;
-    const data = await apiCall("POST", `/agents/${agent_id}/profile`, body);
+    const data = await apiCall("POST", `/agent/profile`, body);
     return jsonResult(data);
   }
 );
@@ -1178,7 +1178,7 @@ server.tool(
     if (identity) body.identity = identity;
     if (voice) body.voice = voice;
     if (brand) body.brand = brand;
-    const data = await apiCall("PUT", `/agents/${agent_id}/profile`, body);
+    const data = await apiCall("PUT", `/agent/profile`, body);
     return jsonResult(data);
   }
 );
@@ -1190,7 +1190,7 @@ server.tool(
     agent_id: z.string().describe("The agent ID"),
   },
   async ({ agent_id }) => {
-    const data = await apiCall("DELETE", `/agents/${agent_id}/profile`);
+    const data = await apiCall("DELETE", `/agent/profile`);
     return jsonResult(data);
   }
 );
