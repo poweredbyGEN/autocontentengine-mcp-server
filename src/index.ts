@@ -312,6 +312,23 @@ Common error codes:
 5. **Text cells are inputs** — write prompts/scripts there first, then generate media from them.
 6. **Content resource IDs link media** — when lipsync or image-to-video needs existing media, get the content_resource_id from a completed generation's output_resources.
 7. **Render is the final step** — gen_render_video combines all layers into the publishable video.
+
+## Content Ideas API (agent.gen.pro)
+
+The content ideas system generates data-driven video content ideas by analyzing
+trending videos with engagement-weighted hooks and transcripts from 15.7M videos.
+
+### How it works
+1. Call gen_generate_content_ideas with agent_id and optional requirements
+2. Poll gen_get_run_status every 5 seconds until status = "completed"
+3. Ideas are in the messages array of the completed run
+4. Refine with gen_refine_content_ideas passing the conversation_id
+5. Set persistent rules with gen_set_content_preference
+
+### Three layers of control
+- Per-batch requirements: one-time constraints for this generation only
+- Long-term content preferences: persistent rules applied to ALL future generations
+- Feedback/refinement: iterate on specific ideas in conversation context
 `;
 
 async function apiCall(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -589,25 +606,23 @@ server.tool(
   "gen_generate_content",
   `Trigger AI content generation for a cell. Returns a generation_id — poll with gen_get_generation until status is "completed".
 
-Generation types and their data params:
-- TEXT: generation_type="text_generation", data={model:"gemini"|"openai", prompt:"..."}
-- IMAGE: generation_type="gemini_image_generation", data={prompt:"...", model:"gemini"|"gemini_pro", aspect_ratio:"1024:1024"|"576:1024"|"1024:576", number_of_images:1}
-- IMAGE (Midjourney): generation_type="midjourney", data={prompt:"..."}
-- VIDEO (Veo): generation_type="gemini_video_generation", data={prompt:"...", model:"veo3"|"veo3-fast"|"veo3-1"|"veo3-1-fast", duration:8, negative_prompt:"..."}
-- VIDEO (Sora): generation_type="sora2_video_generation", data={prompt:"...", duration:10}
-- VIDEO (Kling): generation_type="kling", data={prompt:"...", model:"kling-v1-6", duration:5}
-- VIDEO (Kling from image): generation_type="kling_image_video", data={prompt:"...", model:"kling-v2-1"|"kling-v2-6", image_content_resource_id:123, duration:5}
-- VIDEO (Seedance): generation_type="seedance_video_generation", data={prompt:"...", model:"seedance-1.0-pro"|"seedance-1.5-pro"}
-- SPEECH: generation_type="eleven_labs", data={voice_id:"...", script:"...", enhance_voice:true}
-- LIPSYNC: generation_type="lipsync", data={model:"sync.so"|"gen", video_content_resource_id:123, audio_content_resource_id:456}
-- CAPTIONS: generation_type="captions", data={audio_content_resource_id:123}
+Generation types (canonical names — legacy names also accepted):
+- TEXT: generation_type="text", data={model:"gemini_2_0_flash"|"gpt_4o"|..., prompt:"..."}
+- IMAGE: generation_type="image_from_text", data={prompt:"...", model:"gemini_image"|"gemini_pro_image"|"midjourney", aspect_ratio:"1:1"|"9:16"|"16:9"}
+- VIDEO (text): generation_type="video_from_text", data={prompt:"...", model:"veo_3"|"sora_2"|"kling_1_6"|"seedance_pro"|..., duration:5|10}
+- VIDEO (image): generation_type="video_from_image", data={prompt:"...", model:"kling_2_1"|"veo_3"|..., image_resource_id:123}
+- VIDEO (ingredients): generation_type="video_from_ingredients", data={prompt:"...", model:"pika"|..., asset_resource_ids:[...]}
+- SPEECH: generation_type="speech_from_text", data={voice_id:"...", script:"...", voice_method:"my_voices"|"design_voice"|"clone_voice"}
+- LIPSYNC: generation_type="lipsync", data={model:"sync_so"|"gen", video_resource_id:123, audio_resource_id:456}
+- CAPTIONS: generation_type="captions", data={model:"gemini", source_resource_id:123}
+- MEDIA: generation_type="media", data={content_resource_id:123}
 
 Credits are pre-charged and refunded on failure/stop.`,
   {
     engine_id: z.string().describe("The engine ID"),
     cell_id: z.string().describe("The cell ID to generate content for"),
     agent_id: z.string().describe("The agent ID that owns the engine"),
-    generation_type: z.string().describe("text_generation | gemini_image_generation | midjourney | gemini_video_generation | sora2_video_generation | kling | kling_image_video | seedance_video_generation | eleven_labs | lipsync | captions"),
+    generation_type: z.string().describe("text | image_from_text | video_from_text | video_from_image | video_from_ingredients | speech_from_text | lipsync | captions | media"),
     data: z.record(z.string(), z.unknown()).optional().describe("Generation-specific parameters (prompt, model, aspect_ratio, duration, voice_id, etc.)"),
   },
   async ({ engine_id, cell_id, agent_id, generation_type, data: extraData }) => {
@@ -1326,6 +1341,122 @@ server.tool(
       user_job_type: "publish_content",
       data: JSON.stringify(publishData),
     });
+    return jsonResult(data);
+  }
+);
+
+// ── Agent Profile tools (agent.gen.pro) ─────────────────────────────────────
+
+server.tool(
+  "gen_get_agent_profile",
+  "Get the full agent profile including identity, voice settings, and brand configuration. Returns grouped sections: identity (name, avatar, persona), voice (ElevenLabs key, default voice), and brand (keywords, platforms, linked accounts, content_idea_preferences). Use this to check current agent setup before making changes.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+  },
+  async ({ agent_id }) => {
+    const data = await agentApiCall("GET", `/agent/profile?agent_id=${agent_id}`);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_create_agent_profile",
+  "Set up an agent's profile for the first time. Send any combination of identity, voice, and brand sections. Identity: name, description, persona. Voice: eleven_lab_api_key, hume_ai_api_key, default_voice. Brand: brand_name, description, goal, keywords, target_platforms, shortform, longform, linked_accounts, content_idea_preferences.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    identity: z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      persona: z.string().optional(),
+    }).optional().describe("Identity: name, description, persona"),
+    voice: z.object({
+      eleven_lab_api_key: z.string().optional(),
+      hume_ai_api_key: z.string().optional(),
+      default_voice: z.object({
+        id: z.string().optional(),
+        name: z.string().optional(),
+        provider: z.string().optional(),
+      }).optional(),
+    }).optional().describe("Voice: API keys and default voice config"),
+    brand: z.object({
+      brand_name: z.string().optional(),
+      description: z.string().optional(),
+      goal: z.string().optional(),
+      keywords: z.array(z.string()).optional(),
+      target_platforms: z.array(z.string()).optional(),
+      shortform: z.boolean().optional(),
+      longform: z.boolean().optional(),
+      linked_accounts: z.array(z.object({
+        id: z.number().optional(),
+        platform: z.string(),
+        url: z.string(),
+      })).optional(),
+      content_idea_preferences: z.string().optional().describe("Persistent rules, newline-separated: '- always use statement hooks\\n- never mention competitors'"),
+    }).optional().describe("Brand: config, keywords, platforms, preferences"),
+  },
+  async ({ agent_id, identity, voice, brand }) => {
+    const body: Record<string, unknown> = {};
+    if (identity) body.identity = identity;
+    if (voice) body.voice = voice;
+    if (brand) body.brand = brand;
+    const data = await agentApiCall("POST", `/agent/profile?agent_id=${agent_id}`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_agent_profile",
+  "Update an existing agent profile. Only send the sections and fields you want to change. Array fields (keywords, platforms, linked_accounts) are replaced entirely, not appended.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+    identity: z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      persona: z.string().optional(),
+    }).optional(),
+    voice: z.object({
+      eleven_lab_api_key: z.string().optional(),
+      hume_ai_api_key: z.string().optional(),
+      default_voice: z.object({
+        id: z.string().optional(),
+        name: z.string().optional(),
+        provider: z.string().optional(),
+      }).optional(),
+    }).optional(),
+    brand: z.object({
+      brand_name: z.string().optional(),
+      description: z.string().optional(),
+      goal: z.string().optional(),
+      keywords: z.array(z.string()).optional(),
+      target_platforms: z.array(z.string()).optional(),
+      shortform: z.boolean().optional(),
+      longform: z.boolean().optional(),
+      linked_accounts: z.array(z.object({
+        id: z.number().optional(),
+        platform: z.string(),
+        url: z.string(),
+      })).optional(),
+      content_idea_preferences: z.string().optional().describe("Persistent rules, newline-separated"),
+    }).optional(),
+  },
+  async ({ agent_id, identity, voice, brand }) => {
+    const body: Record<string, unknown> = {};
+    if (identity) body.identity = identity;
+    if (voice) body.voice = voice;
+    if (brand) body.brand = brand;
+    const data = await agentApiCall("PUT", `/agent/profile?agent_id=${agent_id}`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_reset_agent_profile",
+  "Reset the agent's brand configuration (TrendPulse config). Clears brand name, keywords, platforms, linked accounts, and content preferences. Does NOT delete the agent or voice settings.",
+  {
+    agent_id: z.string().describe("The agent ID"),
+  },
+  async ({ agent_id }) => {
+    const data = await agentApiCall("DELETE", `/agent/profile?agent_id=${agent_id}`);
     return jsonResult(data);
   }
 );
