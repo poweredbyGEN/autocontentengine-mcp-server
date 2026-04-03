@@ -600,6 +600,44 @@ server.tool(
   }
 );
 
+// ── Generation type mapping (canonical → Rails internal) ────────────────────
+
+const SIMPLE_TYPE_MAP: Record<string, string> = {
+  text: "text_generation",
+  speech_from_text: "eleven_labs",
+};
+
+const MODEL_ROUTED_TYPE_MAP: Record<string, (model: string) => string> = {
+  image_from_text: (model) =>
+    model === "midjourney" ? "midjourney" : "gemini_image_generation",
+  video_from_text: (model) => {
+    if (model.startsWith("sora")) return "sora2_video_generation";
+    if (model.startsWith("kling")) return "kling";
+    if (model.startsWith("seedance")) return "seedance_video_generation";
+    return "gemini_video_generation";
+  },
+  video_from_image: (model) => {
+    if (model.startsWith("kling")) return "kling_image_video";
+    if (model.startsWith("sora")) return "sora2_video_generation";
+    if (model.startsWith("seedance")) return "seedance_video_generation";
+    return "gemini_video_generation";
+  },
+};
+
+function resolveGenerationType(
+  canonicalType: string,
+  data?: Record<string, unknown>
+): string {
+  if (SIMPLE_TYPE_MAP[canonicalType]) return SIMPLE_TYPE_MAP[canonicalType];
+  const router = MODEL_ROUTED_TYPE_MAP[canonicalType];
+  if (router) {
+    const model = String((data?.model as string) ?? "");
+    return router(model);
+  }
+  // Already a Rails type or unknown — pass through unchanged
+  return canonicalType;
+}
+
 // ── Generation tools ─────────────────────────────────────────────────────────
 
 server.tool(
@@ -626,7 +664,8 @@ Credits are pre-charged and refunded on failure/stop.`,
     data: z.record(z.string(), z.unknown()).optional().describe("Generation-specific parameters (prompt, model, aspect_ratio, duration, voice_id, etc.)"),
   },
   async ({ engine_id, cell_id, agent_id, generation_type, data: extraData }) => {
-    const body: Record<string, unknown> = { agent_id, generation_type };
+    const railsType = resolveGenerationType(generation_type, extraData as Record<string, unknown> | undefined);
+    const body: Record<string, unknown> = { agent_id, generation_type: railsType };
     if (extraData) body.data = extraData;
     const result = await apiCall("POST", `/autocontentengine/${engine_id}/cells/${cell_id}/generate`, body);
     return jsonResult(result);
