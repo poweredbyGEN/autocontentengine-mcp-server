@@ -1,6 +1,6 @@
 {
   "name": "@poweredbygen/autocontentengine-mcp-server",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "MCP server for GEN Auto Content Engine API — use with Claude Code",
   "main": "dist/index.js",
   "bin": {

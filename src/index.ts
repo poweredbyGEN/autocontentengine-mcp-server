@@ -313,22 +313,58 @@ Common error codes:
 6. **Content resource IDs link media** — when lipsync or image-to-video needs existing media, get the content_resource_id from a completed generation's output_resources.
 7. **Render is the final step** — gen_render_video combines all layers into the publishable video.
 
-## Content Ideas API (agent.gen.pro)
+## Agentic Chat API (agent.gen.pro)
 
-The content ideas system generates data-driven video content ideas by analyzing
-trending videos with engagement-weighted hooks and transcripts from 15.7M videos.
+The GEN Agentic Chat API provides AI-powered content idea generation with built-in research.
+Base URL: https://agent.gen.pro/v1. Same PAT auth (X-API-Key header).
 
-### How it works
-1. Call gen_generate_content_ideas with agent_id and optional requirements
-2. Poll gen_get_run_status every 5 seconds until status = "completed"
-3. Ideas are in the messages array of the completed run
-4. Refine with gen_refine_content_ideas passing the conversation_id
-5. Set persistent rules with gen_set_content_preference
+### How It Works
+1. Start a run with a message → agent researches, generates ideas
+2. Poll for completion or listen via Firebase
+3. Ideas come back with:
+   - Full video scripts grounded in real research
+   - Selected assets (images, videos) ready for production
+   - Video manifests with timeline layers
+   - Fact-verified claims with citations
+   - Asset-script coherence (visuals match what's spoken)
 
-### Three layers of control
-- Per-batch requirements: one-time constraints for this generation only
-- Long-term content preferences: persistent rules applied to ALL future generations
+### Model Routing
+- Claude Opus: orchestrates research, evaluates quality, iterates
+- Gemini 3.0 Flash: synthesizes research findings, analyzes assets
+- ChatGPT 5.2: writes creative scripts
+
+### Quick Start
+1. gen_get_agent_profile → check agent has keywords configured
+2. gen_generate_content_ideas → "create 5 ideas about recent trends"
+3. gen_get_run_status → poll until completed (ideas in messages array)
+4. gen_list_content_ideas → review generated ideas with selected_assets
+5. gen_update_idea_status → approve the good ones
+6. gen_run_research → standalone research on any topic
+
+### Research
+gen_run_research runs topic research across 10+ platforms (Reddit, X, YouTube,
+TikTok, Instagram, HN, Perplexity, Gemini). Returns source counts, citations,
+and AI synthesis. Content ideas automatically use research when generating.
+
+### Three Layers of Control
+- Per-batch requirements: one-time constraints ("focus on before/after", "under 12 seconds")
+- Long-term preferences: persistent rules for ALL future generations ("never use question hooks")
 - Feedback/refinement: iterate on specific ideas in conversation context
+
+### Video Types
+0=Any, 1=Talking Avatar, 2=Green Screen, 3=Montage, 4=Text-Driven,
+5=POV Object, 6=Narrated/VO, 8=Split Screen, 9=Skit
+
+### Content Ideas Response Shape
+Each idea includes: title, hook, full_script, video_type, video_type_id,
+estimated_duration, selected_assets[], project_manifest (timeline_layers),
+inspiration_sources[], rationale
+
+### Asset Types in selected_assets
+- url: downloadable URL (assets.gen.buzz for social, S3 for web research)
+- type: image | video | audio
+- clip_range: { start, end } — recommended timestamps
+- usage: exact placement in the video ("overlay at 3-6s", "background for green screen")
 `;
 
 async function apiCall(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -1616,6 +1652,24 @@ server.tool(
   },
   async ({ conversation_id }) => {
     const data = await agentApiCall("GET", `/agent/conversations/${conversation_id}`);
+    return jsonResult(data);
+  }
+);
+
+// ── Research ──────────────────────────────────────────────────────────────────
+
+server.tool(
+  "gen_run_research",
+  "Research a topic across 10+ platforms (Reddit, X, YouTube, TikTok, Instagram, HN, Perplexity, Gemini). Returns structured findings with source counts, citations, and AI synthesis. Use for trend analysis, competitive research, or grounding content ideas in real data.",
+  {
+    topic: z.string().describe("Research topic (e.g. 'tariffs on beauty imports 2026', 'skincare routine trends')"),
+    depth: z.enum(["quick", "default", "deep"]).optional().describe("Research depth — quick (~30s), default (~2min), deep (~5min)"),
+    agent_id: z.string().describe("The agent ID"),
+  },
+  async ({ topic, depth, agent_id }) => {
+    const body: Record<string, unknown> = { topic, agent_id };
+    if (depth) body.depth = depth;
+    const data = await agentApiCall("POST", "/research", body);
     return jsonResult(data);
   }
 );
