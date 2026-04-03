@@ -635,6 +635,18 @@ server.tool(
   }
 );
 
+server.tool(
+  "gen_continue_generation",
+  "Continue a previously stopped generation. Credits are re-charged.",
+  {
+    generation_id: z.string().describe("The generation ID to continue"),
+  },
+  async ({ generation_id }) => {
+    const data = await apiCall("POST", `/generations/${generation_id}/continue`);
+    return jsonResult(data);
+  }
+);
+
 // ── Render tools ─────────────────────────────────────────────────────────────
 
 server.tool(
@@ -685,6 +697,54 @@ server.tool(
     const data = await apiCall(
       "DELETE",
       `/autocontentengine/${engine_id}/cells/${cell_id}/layers/${layer_id}?agent_id=${agent_id}`
+    );
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_get_layer",
+  "Get details of a specific layer in a cell, including its type, position, attributes, and generation history.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    cell_id: z.string().describe("The cell ID"),
+    layer_id: z.string().describe("The layer ID"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+  },
+  async ({ engine_id, cell_id, layer_id, agent_id }) => {
+    const data = await apiCall(
+      "GET",
+      `/autocontentengine/${engine_id}/cells/${cell_id}/layers/${layer_id}?agent_id=${agent_id}`
+    );
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_layer",
+  "Update a layer's name, type, position, or additional attributes.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    cell_id: z.string().describe("The cell ID"),
+    layer_id: z.string().describe("The layer ID to update"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+    name: z.string().optional().describe("New layer name"),
+    type: z.string().optional().describe("New layer type"),
+    position: z.number().optional().describe("New position (0-indexed)"),
+    additional_attributes: z.record(z.string(), z.unknown()).optional().describe("Additional attributes to set"),
+  },
+  async ({ engine_id, cell_id, layer_id, agent_id, name, type, position, additional_attributes }) => {
+    const body: Record<string, unknown> = { agent_id };
+    const video_layer: Record<string, unknown> = {};
+    if (name !== undefined) video_layer.name = name;
+    if (type !== undefined) video_layer.type = type;
+    if (position !== undefined) video_layer.position = position;
+    if (additional_attributes) video_layer.additional_attributes = additional_attributes;
+    body.video_layer = video_layer;
+    const data = await apiCall(
+      "PATCH",
+      `/autocontentengine/${engine_id}/cells/${cell_id}/layers/${layer_id}`,
+      body
     );
     return jsonResult(data);
   }
@@ -1038,6 +1098,46 @@ server.tool(
     const body: Record<string, unknown> = { agent_id, title, type };
     if (position !== undefined) body.position = position;
     const data = await apiCall("POST", `/autocontentengine/${engine_id}/columns`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_update_column",
+  "Update a column's title, type, or position. Only ingredient-role columns can be modified.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    column_id: z.string().describe("The column ID to update"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+    title: z.string().optional().describe("New column title"),
+    type: z.string().optional().describe("New column type: text | image | video | audio"),
+    position: z.number().optional().describe("New position (0-indexed)"),
+  },
+  async ({ engine_id, column_id, agent_id, title, type, position }) => {
+    const body: Record<string, unknown> = { agent_id };
+    const spreadsheet_column: Record<string, unknown> = {};
+    if (title !== undefined) spreadsheet_column.title = title;
+    if (type !== undefined) spreadsheet_column.type = type;
+    if (position !== undefined) spreadsheet_column.position = position;
+    body.spreadsheet_column = spreadsheet_column;
+    const data = await apiCall("PATCH", `/autocontentengine/${engine_id}/columns/${column_id}`, body);
+    return jsonResult(data);
+  }
+);
+
+server.tool(
+  "gen_delete_column",
+  "Delete a column from an engine. Only ingredient-role columns can be deleted.",
+  {
+    engine_id: z.string().describe("The engine ID"),
+    column_id: z.string().describe("The column ID to delete"),
+    agent_id: z.string().describe("The agent ID that owns the engine"),
+  },
+  async ({ engine_id, column_id, agent_id }) => {
+    const data = await apiCall(
+      "DELETE",
+      `/autocontentengine/${engine_id}/columns/${column_id}?agent_id=${agent_id}`
+    );
     return jsonResult(data);
   }
 );
