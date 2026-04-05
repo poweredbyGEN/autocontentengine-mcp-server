@@ -373,14 +373,18 @@ The Agent Core API lets you read and write everything on the agent setup canvas
 an agent programmatically — replaces the per-resource TrendPulse sequence.
 
 ### Flat endpoints
-- GET /v1/agents/{id}/core → reads identity + overview + personality + inspiration + voice + look + accounts in one call
-- PATCH /v1/agents/{id}/core → writes any combination of those sections. Merge semantics for identity/overview/look.description, replace semantics for personality/inspiration/voice/accounts. Returns 200 on full success or 207 Multi-Status with per-section results on partial failure.
+- GET /v1/agents/{id}/core → reads every field as a flat object (brand_name, description, identity_type, goal, target_platforms, shortform, longform, keywords, monitored, linked_accounts, personality, default_user_voice)
+- PATCH /v1/agents/{id}/core → writes any subset. Field names mirror the GEN Setup canvas 1:1 — no wrappers, no sections. Returns 200 on full success or 207 with per-target status (trendpulse | personality | voice) on partial failure.
+
+### Critical distinctions
+- linked_accounts = the agent's OWN brand socials. monitored = inspiration sources to watch (creators/hashtags/keywords). Not interchangeable.
+- description is a short 2-3 sentence brand summary (max 500 chars). personality is the FULL persona text (max 20000 chars). Dumping persona into description returns 422.
+- keywords, monitored, linked_accounts, target_platforms all use FULL-LIST replacement. To append one row, GET first, append, PATCH.
+- Sending keywords without monitored auto-mirrors keywords into monitored with item_type='keyword' so the monitoring cron stays in sync.
 
 ### MCP tools
-- gen_get_agent_core → full read. Use this FIRST before updating to see current state.
-- gen_update_agent_core → the STAR tool. Pass any combination of identity, overview, personality, inspiration, voice, accounts in one call.
-- gen_add_agent_account → append one social URL to the agent's OWN socials.
-- gen_add_agent_inspiration → append one inspiration source URL (creators the agent draws style from, NOT its own socials).
+- gen_get_agent_core → full flat read. Use FIRST before updating so you have the current list state for linked_accounts/monitored.
+- gen_update_agent_core → the STAR tool. Flat PATCH covering every field the Setup canvas saves.
 
 ### Voice API
 - gen_connect_agent_elevenlabs → validate + save the user's ElevenLabs key on the agent
@@ -1698,7 +1702,7 @@ server.tool(
 
 server.tool(
   "gen_get_agent_core",
-  "Get all agent setup sections in one call: identity (name + profile photo), overview (brand name, description, identity type, goal, keywords, target platforms), personality, inspiration sources, voice, look (description + reference images), accounts (the agent's own socials). Use before updating to see current state.",
+  "Get the agent's full setup as a flat object: brand_name, description, identity_type, goal, target_platforms, shortform, longform, onboarding_status, keywords, monitored (inspiration sources: accounts/hashtags/keywords to watch), linked_accounts (the agent's OWN brand socials), personality (full persona text), default_user_voice. Field names mirror the GEN Setup canvas exactly. Use BEFORE updating to see current state — list fields like linked_accounts and monitored use full-list replacement on PATCH, so you need to read them first if you're appending.",
   {
     agent_id: z.string().describe("The agent ID"),
   },
@@ -1710,41 +1714,34 @@ server.tool(
 
 server.tool(
   "gen_update_agent_core",
-  "Update any combination of agent setup sections in one call. Merge semantics for identity + overview + look.description; replace semantics for personality + inspiration + voice + accounts. Returns 200 on full success, 207 with per-section results on partial failure. PREFERRED over calling individual TrendPulse endpoints.",
+  "Update an agent's setup with a single flat PATCH. Every field name maps 1:1 to how the GEN Setup canvas saves data — no wrappers, no sections. PREFERRED over calling individual TrendPulse endpoints. CRITICAL distinctions: (1) linked_accounts = the agent's OWN brand socials (what it posts from). monitored = inspiration sources to watch (accounts, hashtags, or keywords). Don't mix them. (2) description is a short 2-3 sentence brand summary, max 500 chars. personality is the FULL persona/backstory, max 20000 chars. Dumping persona text into description returns 422. (3) linked_accounts and monitored use FULL-LIST replacement: rows you don't send are deleted. To add one row without touching others, call gen_get_agent_core first, append, then PATCH. (4) Sending keywords without monitored auto-mirrors keywords into monitored with item_type='keyword' so the monitoring cron stays in sync. Returns 200 on full success, 207 with per-target status (trendpulse, personality, voice) on partial failure.",
   {
     agent_id: z.string().describe("The agent ID"),
-    identity: z.object({
-      name: z.string().optional(),
-      profile_photo_url: z.string().optional(),
-    }).optional().describe("Identity merge-patch"),
-    overview: z.object({
-      brand_name: z.string().optional(),
-      description: z.string().optional(),
-      identity_type: z.enum(["brand", "character"]).optional(),
-      goal: z.string().optional().describe("e.g. 'growth', 'authority', 'sales'"),
-      keywords: z.array(z.string()).optional(),
-      target_platforms: z.array(z.string()).optional(),
-      shortform: z.boolean().optional(),
-      longform: z.boolean().optional(),
-      onboarding_status: z.string().optional(),
-    }).optional().describe("Brand profile merge-patch"),
-    personality: z.string().optional().describe("Full personality / backstory text — replaces existing"),
-    inspiration: z.array(z.object({
-      url: z.string(),
-      platform: z.string().optional(),
-    })).optional().describe("Inspiration source URLs — replaces full list"),
-    look: z.object({
-      description: z.string().optional(),
-    }).optional().describe("Look description merge-patch (reference_images managed via item-level tools)"),
-    voice: z.object({
-      voice_id: z.string(),
-      source: z.enum(["public", "user_designed", "user_trained", "user_elevenlabs"]).optional(),
-    }).optional().describe("Voice reference — replaces default"),
-    accounts: z.array(z.object({
-      url: z.string(),
-      platform: z.string().optional(),
+    brand_name: z.string().optional().describe("Agent display name. Max 200 chars."),
+    description: z.string().max(500).optional().describe("Short 2-3 sentence brand summary. Max 500 chars. NOT full persona — that goes in `personality`."),
+    identity_type: z.enum(["brand", "character"]).optional().describe("'brand' for a real brand, 'character' for an AI persona."),
+    goal: z.string().optional().describe("Comma-separated goals, e.g. 'growth' or 'authority,sales'."),
+    target_platforms: z.array(z.string()).optional().describe("e.g. ['tiktok', 'instagram']"),
+    shortform: z.boolean().optional(),
+    longform: z.boolean().optional(),
+    onboarding_status: z.string().optional(),
+    keywords: z.array(z.string()).optional().describe("Flat list of keyword strings. Replaces the full list."),
+    monitored: z.array(z.object({
+      handle: z.string().describe("For accounts: @handle or URL. For hashtags: tag with or without #. For keywords: plain search term."),
+      item_type: z.enum(["account", "hashtag", "keyword"]),
+    })).optional().describe("Inspiration sources to watch for trending content. Replaces the full list."),
+    linked_accounts: z.array(z.object({
+      id: z.number().int().optional().describe("Existing row id (for updates). Omit for new accounts."),
+      url: z.string().describe("Full URL of the brand's own social, e.g. https://tiktok.com/@santiago_real"),
+      platform: z.string().optional().describe("tiktok | instagram | youtube | x | linkedin | pinterest | facebook | threads | website"),
       display_name: z.string().optional(),
-    })).optional().describe("Agent's own socials — replaces full list"),
+    })).optional().describe("The agent's OWN brand social links. Replaces the full list with delete-then-insert diffing."),
+    personality: z.string().max(20000).optional().describe("Full persona / backstory text. Max 20000 chars. Writes to Rails project_nodes (node_type='personality')."),
+    default_user_voice: z.object({
+      voice_id: z.string(),
+      source: z.enum(["public", "user_designed", "user_trained", "user_elevenlabs", "eleven_labs"]).optional(),
+      name: z.string().optional(),
+    }).optional().describe("Default voice reference. Writes to Rails agents.default_user_voice_attributes."),
   },
   async ({ agent_id, ...patch }) => {
     const body: Record<string, unknown> = {};
@@ -1752,40 +1749,6 @@ server.tool(
       if (value !== undefined) body[key] = value;
     }
     const data = await apiCall("PATCH", `/agents/${agent_id}/core`, body);
-    return jsonResult(data);
-  }
-);
-
-server.tool(
-  "gen_add_agent_account",
-  "Add one social account to the agent (the agent's OWN account, not an inspiration source). Detects platform from URL if not provided.",
-  {
-    agent_id: z.string().describe("The agent ID"),
-    url: z.string().describe("Full social URL (e.g. https://tiktok.com/@santiago_real)"),
-    platform: z.string().optional().describe("Override platform detection (e.g. 'tiktok', 'instagram')"),
-    display_name: z.string().optional(),
-  },
-  async ({ agent_id, url, platform, display_name }) => {
-    const body: Record<string, unknown> = { url };
-    if (platform) body.platform = platform;
-    if (display_name) body.display_name = display_name;
-    const data = await apiCall("POST", `/agents/${agent_id}/core/accounts`, body);
-    return jsonResult(data);
-  }
-);
-
-server.tool(
-  "gen_add_agent_inspiration",
-  "Add one inspiration source URL to the agent. These are creators/accounts the agent draws style from — NOT the agent's own socials.",
-  {
-    agent_id: z.string().describe("The agent ID"),
-    url: z.string().describe("Full URL of the inspiration source"),
-    platform: z.string().optional().describe("e.g. 'tiktok', 'instagram', 'youtube'"),
-  },
-  async ({ agent_id, url, platform }) => {
-    const body: Record<string, unknown> = { url };
-    if (platform) body.platform = platform;
-    const data = await apiCall("POST", `/agents/${agent_id}/core/inspiration`, body);
     return jsonResult(data);
   }
 );

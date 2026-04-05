@@ -1,6 +1,6 @@
 {
   "name": "@poweredbygen/gen-mcp-server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "GEN MCP server — Claude Code integration for the GEN platform (Auto Content Engine + Agent Core)",
   "main": "dist/index.js",
   "bin": {
