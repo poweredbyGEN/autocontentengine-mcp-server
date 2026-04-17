@@ -369,8 +369,8 @@ inspiration_sources[], rationale
 ## Agent Core (GEN-2755)
 
 The Agent Core API lets you read and write everything on the agent setup canvas
-(gen.pro/{agent_id}/setup) in a single call. It is the PREFERRED way to configure
-an agent programmatically — replaces the per-resource TrendPulse sequence.
+(gen.pro/{agent_id}/setup) in a single call. It is the ONLY supported way to
+configure an agent programmatically.
 
 ### Flat endpoints
 - GET /v1/agents/{id}/core → reads identity + overview + personality + inspiration + voice + look + accounts in one call
@@ -400,8 +400,8 @@ an agent programmatically — replaces the per-resource TrendPulse sequence.
 - gen_preview_voice → ASYNC. Returns {user_job_id} immediately.
 - gen_get_voice_preview_status → poll until status=='completed', then read output_resources for the audio URL.
 
-### When to use Agent Core vs individual TrendPulse tools
-Use Agent Core whenever you are setting up a new agent or making any change to its setup canvas. The only time you should use the individual /v1/agents/{id}/trendpulse/* tools is when you need to trigger a feature the Agent Core API doesn't expose (e.g., manual brand analysis kickoff, subscription management, trend source monitoring toggles).
+### Using Agent Core
+Use Agent Core for every agent setup read and write. Individual legacy endpoints exist only for features the Agent Core API does not yet expose (e.g., manual brand analysis kickoff, subscription management, trend source monitoring toggles) — ask before reaching for them.
 `;
 
 async function apiCall(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -1563,7 +1563,7 @@ server.tool(
 
 server.tool(
   "gen_reset_agent_profile",
-  "Reset the agent's brand configuration (TrendPulse config). Clears brand name, keywords, platforms, linked accounts, and content preferences. Does NOT delete the agent or voice settings.",
+  "Reset the agent's brand configuration. Clears brand name, keywords, platforms, linked accounts, and content preferences. Does NOT delete the agent or voice settings.",
   {
     agent_id: z.string().describe("The agent ID"),
   },
@@ -1710,7 +1710,7 @@ server.tool(
 
 server.tool(
   "gen_update_agent_core",
-  "Update any combination of agent setup sections in one call. Merge semantics for identity + overview + look.description; replace semantics for personality + inspiration + voice + accounts. Returns 200 on full success, 207 with per-section results on partial failure. PREFERRED over calling individual TrendPulse endpoints.",
+  "Update any combination of agent setup sections in one call. Merge semantics for identity + overview + look.description; replace semantics for personality + inspiration + voice + accounts. Returns 200 on full success, 207 with per-section results on partial failure. This is the only supported path for agent setup writes.",
   {
     agent_id: z.string().describe("The agent ID"),
     identity: z.object({

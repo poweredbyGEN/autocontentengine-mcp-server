@@ -3,3 +3,11 @@ dist/
 *.tgz
 .env
 .npmrc
+
+
+# Local-only tooling
+.claude/
+CLAUDE.md
+graphify-out/
+src/graphify-out/
+
