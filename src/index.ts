@@ -161,8 +161,8 @@ and a timeline manifest. You can refine iteratively in conversation, set
 persistent preferences, and optionally trigger content monitoring jobs that
 keep scraping trending posts in the background.
 
-This step is powered by the **agent.gen.pro** service (a separate base URL
-from Rails). Tools that hit it live under "Agent Ideas" below.
+This step is powered by the **agent.gen.pro** service (separate from the main
+content API). Tools that hit it live under "Agent Ideas" below.
 
 **Top tools for this step:**
 
@@ -173,7 +173,8 @@ from Rails). Tools that hit it live under "Agent Ideas" below.
 | \`gen_list_content_ideas\` | List all ideas for the agent (across runs). Filter by status. |
 | \`gen_refine_content_ideas\` | Feedback on existing ideas — "redo idea 2 as a montage". Requires the \`conversation_id\` from the original run. |
 | \`gen_set_content_preference\` | Persistent rules that apply to EVERY future generation ("always use statement hooks", "never mention competitors"). Different from per-batch \`requirements\`. |
-| \`gen_update_idea_status\` | Promote an idea: generated → approve_to_create → ready_for_review → approved → published. |
+| \`gen_decide_agent_run\` | Approve or reject a pending action gate on a run. |
+| \`gen_update_idea_status\` | Promote an idea: generated → approve_to_create → ready_for_review → approved_to_post → posted. |
 | \`gen_run_research\` | Standalone research on any topic. Use for trend hunts before generating ideas. |
 | \`gen_create_monitoring_job\` | Schedule ongoing scrapes of a hashtag/creator/keyword — the data feeds back into future idea generation. |
 | \`gen_list_conversations\` / \`gen_get_conversation\` | Review chat history before refining. |
@@ -1331,7 +1332,7 @@ server.tool(
 
 server.tool(
   "gen_get_run_status",
-  "Step 2 (Content Ideas): Poll the status of an agent run. Returns 'running', 'completed', or 'failed'. When completed, messages array has the result. Poll every 5 seconds.",
+  "Step 2 (Content Ideas): Poll the status of an agent run. Returns 'running', 'completed', 'failed', or 'awaiting_approval'. When completed, messages array has the result. Poll every 5 seconds.",
   {
     run_id: z.string().describe("The run_id from gen_generate_content_ideas or gen_refine_content_ideas"),
   },
@@ -1342,8 +1343,21 @@ server.tool(
 );
 
 server.tool(
+  "gen_decide_agent_run",
+  "Step 2 (Content Ideas): Approve or reject a pending agent action gate. Use when gen_get_run_status returns awaiting_approval. Pass approved=true to continue the run, approved=false to reject and fail it.",
+  {
+    run_id: z.string().describe("The run ID awaiting approval"),
+    approved: z.boolean().describe("true to approve and continue; false to reject the pending action"),
+  },
+  async ({ run_id, approved }) => {
+    const data = await agentApiCall("POST", `/agent/runs/${run_id}/approve`, { approved });
+    return jsonResult(data);
+  }
+);
+
+server.tool(
   "gen_list_content_ideas",
-  "Step 2 (Content Ideas): List all generated content ideas for an agent. Filter by status: generated, approve_to_create, ready_for_review, approved, published.",
+  "Step 2 (Content Ideas): List all generated content ideas for an agent. Filter by status: generated, approve_to_create, ready_for_review, change_idea, change_video, rejected, approved_to_post, posted.",
   {
     agent_id: z.string().describe("The agent ID"),
     status: z.string().optional().describe("Filter by status"),
@@ -1358,7 +1372,7 @@ server.tool(
 
 server.tool(
   "gen_update_idea_status",
-  "Step 2 (Content Ideas): Update the status of a content idea. Flow: generated → approve_to_create → ready_for_review → approved → published. Approved ideas are the candidates to clone into a vidsheet in Step 3.",
+  "Step 2 (Content Ideas): Update the status of a content idea. Flow: generated → approve_to_create → ready_for_review → approved_to_post → posted. Edit/rejection statuses: change_idea, change_video, rejected. approved_to_post ideas are candidates to clone into a vidsheet in Step 3.",
   {
     idea_id: z.string().describe("The idea ID"),
     status: z.string().describe("New status value"),
@@ -1866,12 +1880,10 @@ server.tool(
   {
     agent_id: z.string().describe("The agent to create the resource under"),
     signed_id: z.string().describe("The signed_id returned from gen_create_direct_upload"),
-    project_id: z.string().optional().describe("Attach the resource to this project"),
     asset_folder_id: z.string().optional().describe("Place the resource inside this asset folder"),
   },
-  async ({ agent_id, signed_id, project_id, asset_folder_id }) => {
+  async ({ agent_id, signed_id, asset_folder_id }) => {
     const body: Record<string, unknown> = { content_resource: { file: signed_id } };
-    if (project_id) body.project_node = { project_id };
     if (asset_folder_id) body.asset_folder = { id: asset_folder_id };
     const data = await apiCall("POST", `/content_resources?agent_id=${agent_id}`, body);
     return jsonResult(data);
